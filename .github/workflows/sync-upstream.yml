@@ -28,6 +28,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           token: ${{ secrets.SYNC_TOKEN || github.token }}
+          ref: master  # Always sync from master, even when dispatched on a branch
           fetch-depth: 0
           persist-credentials: true  # Needed to git-push the merge commit
 
@@ -41,32 +42,34 @@ jobs:
           echo "Latest upstream release: ${TAG}"
 
       - name: Fetch and merge upstream tag
-        id: merge
         env:
           TAG: ${{ steps.check.outputs.tag }}
         run: |
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch --no-tags upstream "+refs/tags/${TAG}:refs/tags/${TAG}"
           if git merge-base --is-ancestor "${TAG}" HEAD; then
-            echo "${TAG} is already merged, nothing to do"
-            echo "merged=false" >> "${GITHUB_OUTPUT}"
-            exit 0
+            echo "${TAG} is already merged"
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git merge --no-edit "${TAG}"
+            git push origin HEAD:master
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git merge --no-edit "${TAG}"
-          echo "merged=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Push and release
-        if: steps.merge.outputs.merged == 'true'
+      - name: Dispatch release if missing
         env:
           TAG: ${{ steps.check.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git push origin HEAD:master
+          # Merge state and release state are independent: a failed dispatch or
+          # failed release.yml run must be retried on the next sync.
+          if gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" -q '.[].tag_name' | grep -q "^${TAG}\."; then
+            echo "A release for ${TAG} already exists, nothing to do"
+            exit 0
+          fi
           REV=1
           while git ls-remote --exit-code --tags origin "refs/tags/${TAG}.${REV}" >/dev/null 2>&1; do
             REV=$((REV + 1))
           done
-          gh workflow run release.yml -f "version=${TAG}.${REV}"
+          gh workflow run release.yml -R "${GITHUB_REPOSITORY}" -f "version=${TAG}.${REV}"
           echo "Released ${TAG}.${REV}"

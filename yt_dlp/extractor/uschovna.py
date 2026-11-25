@@ -9,6 +9,7 @@ from ..utils import (
     parse_filesize,
     urljoin,
 )
+from ..utils._utils import _UnsafeExtensionError
 
 
 class UschovnaIE(InfoExtractor):
@@ -32,8 +33,10 @@ class UschovnaIE(InfoExtractor):
 
         # The user pasted a link that was already generated: nothing to scrape.
         if kind != 'zasilka':
+            file_id = url.rstrip('/').rsplit('/', 1)[-1]
             return self._make_entry(
-                package_id, url, title=package_id,
+                f'{package_id}_{file_id}', url,
+                title=file_id if kind == 'download' else package_id,
                 ext='zip' if kind == 'download-zip' else 'bin', referer=url)
 
         webpage = self._download_webpage(url, package_id)
@@ -68,10 +71,10 @@ class UschovnaIE(InfoExtractor):
 
             file_id = path.rstrip('/').rsplit('/', 1)[-1]
             filename = clean_html(get_element_by_class('title', block)) or file_id
-            stem, ext = os.path.splitext(filename)
+            stem, ext = self._split_filename(filename)
             entries.append(self._make_entry(
                 f'{package_id}_{file_id}', urljoin(url, path),
-                title=stem or filename, ext=ext.lstrip('.').lower() or 'bin',
+                title=stem or filename, ext=ext,
                 referer=url,
                 filesize_approx=parse_filesize(clean_html(get_element_by_class('size', block)))))
 
@@ -85,6 +88,18 @@ class UschovnaIE(InfoExtractor):
         if len(entries) == 1:
             return entries[0]
         return self.playlist_result(entries, package_id, title)
+
+    @staticmethod
+    def _split_filename(filename):
+        # An unsafe ext would get the whole entry skipped by YoutubeDL; keep
+        # the real name in the title and fall back to 'bin' (.unknown_video).
+        stem, ext = os.path.splitext(filename)
+        ext = ext.lstrip('.').lower() or 'bin'
+        try:
+            _UnsafeExtensionError.sanitize_extension(ext)
+        except _UnsafeExtensionError:
+            stem, ext = filename, 'bin'
+        return stem, ext
 
     @staticmethod
     def _make_entry(entry_id, url, *, title, ext, referer, **extra):

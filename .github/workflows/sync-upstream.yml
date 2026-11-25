@@ -5,15 +5,21 @@ on:
     - cron: '13 4 * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
-  actions: write
+permissions: {}
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false  # never interrupt a merge/push mid-run
 
 env:
   UPSTREAM_REPO: yt-dlp/yt-dlp
 
 jobs:
   sync:
+    name: Sync
+    permissions:
+      contents: write  # Push the upstream merge commit to master
+      actions: write   # Dispatch release.yml via gh workflow run
     runs-on: ubuntu-latest
     steps:
       # SYNC_TOKEN (PAT with repo+workflow) is required once upstream edits
@@ -23,6 +29,7 @@ jobs:
         with:
           token: ${{ secrets.SYNC_TOKEN || github.token }}
           fetch-depth: 0
+          persist-credentials: true  # Needed to git-push the merge commit
 
       - name: Get latest upstream release
         id: check

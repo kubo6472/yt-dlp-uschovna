@@ -34,10 +34,13 @@ class UschovnaIE(InfoExtractor):
         # The user pasted a link that was already generated: nothing to scrape.
         if kind != 'zasilka':
             file_id = url.rstrip('/').rsplit('/', 1)[-1]
+            # The zip token changes per page view, so it can't be part of a
+            # stable id; file links keep their file id for dedup.
+            is_zip = kind == 'download-zip'
             return self._make_entry(
-                f'{package_id}_{file_id}', url,
-                title=file_id if kind == 'download' else package_id,
-                ext='zip' if kind == 'download-zip' else 'bin', referer=url)
+                package_id if is_zip else f'{package_id}_{file_id}', url,
+                title=package_id if is_zip else file_id,
+                ext='zip' if is_zip else 'bin', referer=url)
 
         webpage = self._download_webpage(url, package_id)
 
